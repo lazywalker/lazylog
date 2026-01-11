@@ -9,37 +9,33 @@ keywords = ["logging", "tracing", "rotation", "file", "structured"]
 categories = ["development-tools::debugging"]
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
 thiserror = "1.0"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", optional = true, features = [
+tracing-subscriber = { version = "0.3", default-features = false, features = [
     "env-filter",
     "json",
     "fmt",
 ] }
-tracing-appender = { version = "0.2", optional = true }
+tracing-appender = { version = "0.2", default-features = false, optional = true }
 once_cell = "1.19"
-
-# Optional dependencies
-time = { version = "0.3", optional = true, features = [
-    "local-offset",
-    "formatting",
-] }
+time = { version = "0.3", default-features = false, optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
 tempfile = "3.0"
+serde_yaml = "0.9"
 
 [features]
-default = ["tracing-integration"]
-tracing-integration = [
-    "tracing-subscriber/env-filter",
-    "tracing-subscriber/json",
-    "tracing-subscriber/local-time",
+default = []
+file = ["tracing-appender"]
+ansi = ["tracing-subscriber/ansi"]
+time = [
+    "time/local-offset",
+    "time/macros",
+    "time/formatting",
+    "tracing-subscriber/time",
 ]
-log-file = ["tracing-integration", "tracing-appender"]
-log-ansi = ["tracing-integration", "tracing-subscriber/ansi"]
-time = ["time/local-offset", "time/macros"]
 
 [[example]]
 name = "basic"
@@ -52,4 +48,4 @@ path = "examples/json_logging.rs"
 [[example]]
 name = "rotation"
 path = "examples/rotation.rs"
-required-features = ["time"]
+required-features = ["time", "file"]

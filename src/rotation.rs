@@ -1,24 +1,143 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 #[cfg(feature = "time")]
 use time::OffsetDateTime;
 
 /// Rotation trigger for log files.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RotationTrigger {
     /// Never rotate.
     #[default]
     Never,
     /// Rotate based on time period.
-    Time { period: RotationPeriod },
-    /// Rotate based on file size.
-    Size { max_size: u64, max_files: usize },
-    /// Rotate based on both time and size.
-    Both {
+    Time {
+        /// The time period for rotation.
         period: RotationPeriod,
+    },
+    /// Rotate based on file size.
+    Size {
+        /// Maximum file size in bytes before rotation.
         max_size: u64,
+        /// Maximum number of files to keep.
         max_files: usize,
     },
+    /// Rotate based on both time and size.
+    Both {
+        /// The time period for rotation.
+        period: RotationPeriod,
+        /// Maximum file size in bytes before rotation.
+        max_size: u64,
+        /// Maximum number of files to keep.
+        max_files: usize,
+    },
+}
+
+impl<'de> Deserialize<'de> for RotationTrigger {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum RotationInput {
+            Simple(String),
+            Complex {
+                #[serde(rename = "type")]
+                rotation_type: Option<String>,
+                period: Option<RotationPeriod>,
+                max_size: Option<u64>,
+                max_files: Option<usize>,
+            },
+        }
+
+        let input = RotationInput::deserialize(deserializer)?;
+
+        match input {
+            RotationInput::Simple(rotation_type) => match rotation_type.as_str() {
+                "never" => Ok(RotationTrigger::Never),
+                "size" => Ok(RotationTrigger::Size {
+                    max_size: 10 * 1024 * 1024,
+                    max_files: 5,
+                }),
+                "time" => {
+                    #[cfg(feature = "time")]
+                    {
+                        Ok(RotationTrigger::Time {
+                            period: RotationPeriod::Daily,
+                        })
+                    }
+                    #[cfg(not(feature = "time"))]
+                    {
+                        Err(de::Error::custom(
+                            "time-based rotation requires time feature",
+                        ))
+                    }
+                }
+                "both" => {
+                    #[cfg(feature = "time")]
+                    {
+                        Ok(RotationTrigger::Both {
+                            period: RotationPeriod::Daily,
+                            max_size: 10 * 1024 * 1024,
+                            max_files: 5,
+                        })
+                    }
+                    #[cfg(not(feature = "time"))]
+                    {
+                        Err(de::Error::custom(
+                            "time-based rotation requires time feature",
+                        ))
+                    }
+                }
+                other => Err(de::Error::custom(format!(
+                    "unknown rotation type: {}",
+                    other
+                ))),
+            },
+            RotationInput::Complex {
+                rotation_type,
+                period,
+                max_size,
+                max_files,
+            } => match rotation_type.as_deref() {
+                Some("never") | None => Ok(RotationTrigger::Never),
+                Some("time") => {
+                    let period = period.ok_or_else(|| {
+                        de::Error::custom("period is required for time-based rotation")
+                    })?;
+                    Ok(RotationTrigger::Time { period })
+                }
+                Some("size") => {
+                    let max_size = max_size.ok_or_else(|| {
+                        de::Error::custom("max_size is required for size-based rotation")
+                    })?;
+                    let max_files = max_files.unwrap_or(5);
+                    Ok(RotationTrigger::Size {
+                        max_size,
+                        max_files,
+                    })
+                }
+                Some("both") => {
+                    let period = period.ok_or_else(|| {
+                        de::Error::custom("period is required for time+size rotation")
+                    })?;
+                    let max_size = max_size.ok_or_else(|| {
+                        de::Error::custom("max_size is required for time+size rotation")
+                    })?;
+                    let max_files = max_files.unwrap_or(5);
+                    Ok(RotationTrigger::Both {
+                        period,
+                        max_size,
+                        max_files,
+                    })
+                }
+                Some(other) => Err(de::Error::custom(format!(
+                    "unknown rotation type: {}",
+                    other
+                ))),
+            },
+        }
+    }
 }
 
 impl RotationTrigger {
@@ -133,13 +252,62 @@ mod tests {
     }
 
     #[test]
-    fn test_rotation_trigger_has_size_rotation() {
-        assert!(!RotationTrigger::Never.has_size_rotation());
-        assert!(RotationTrigger::size(1024, 5).has_size_rotation());
+    fn test_rotation_trigger_deserialize() {
+        // Test deserializing "never"
+        let yaml = "never";
+        let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(trigger, RotationTrigger::Never);
+
+        // Test deserializing size-based rotation
+        let yaml = r#"
+type: size
+max_size: 1024
+max_files: 5
+"#;
+        let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            trigger,
+            RotationTrigger::Size {
+                max_size: 1024,
+                max_files: 5
+            }
+        );
+
+        // Test deserializing time-based rotation
         #[cfg(feature = "time")]
-        assert!(!RotationTrigger::time(RotationPeriod::Daily).has_size_rotation());
+        {
+            let yaml = r#"
+type: time
+period: daily
+"#;
+            let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
+            assert_eq!(
+                trigger,
+                RotationTrigger::Time {
+                    period: RotationPeriod::Daily
+                }
+            );
+        }
+
+        // Test deserializing both time and size rotation
         #[cfg(feature = "time")]
-        assert!(RotationTrigger::both(RotationPeriod::Daily, 1024, 3).has_size_rotation());
+        {
+            let yaml = r#"
+type: both
+period: hourly
+max_size: 2048
+max_files: 10
+"#;
+            let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
+            assert_eq!(
+                trigger,
+                RotationTrigger::Both {
+                    period: RotationPeriod::Hourly,
+                    max_size: 2048,
+                    max_files: 10
+                }
+            );
+        }
     }
 
     #[cfg(feature = "time")]

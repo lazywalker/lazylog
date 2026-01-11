@@ -29,23 +29,24 @@ lazylog = { version = "0.1", features = ["tracing-integration"] }
 
 Optional features:
 
-- `log-file`: Enable file logging support
-- `log-ansi`: Enable ANSI color codes in console output
+- `file`: Enable file logging support
+- `ansi`: Enable ANSI color codes in console output
 - `time`: Enable time-based log rotation (requires local timezone support)
 
 ## Quick Start
 
+### Using the Builder API (Recommended)
+
+The simplest way to initialize logging:
+
 ```rust
-use lazylog::{init_logging, LogConfig};
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Configure console logging
-    let config = LogConfig::new().with_console(true);
+    // Simple console logging
+    lazylog::builder()
+        .with_console(true)
+        .with_level("info")
+        .init()?;
 
-    // Initialize logging
-    init_logging(&config)?;
-
-    // Log some messages
     tracing::info!("Application started");
     tracing::warn!("This is a warning");
     tracing::error!("This is an error");
@@ -54,9 +55,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Using Configuration Objects
+
+For more complex setups or when loading from config files:
+
+```rust
+use lazylog::LogConfig;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = LogConfig::new().with_console(true);
+    
+    // Option 1: Use the builder with config
+    lazylog::from_config(config).init()?;
+    
+    // Option 2: Use the traditional init_logging function
+    lazylog::init_logging(&config, None)?;
+
+    tracing::info!("Application started");
+
+    Ok(())
+}
+```
+
 ## Configuration
 
-### Basic Configuration
+### Builder API Examples
+
+The builder API provides a fluent interface for configuration:
+
+```rust
+use lazylog::{RotationTrigger, RotationPeriod};
+
+// Console logging with custom level
+lazylog::builder()
+    .with_console(true)
+    .with_level("debug")
+    .init()?;
+
+// JSON format logging
+lazylog::builder()
+    .with_console(true)
+    .with_format("json")
+    .with_level("info")
+    .init()?;
+
+// File logging with rotation
+lazylog::builder()
+    .with_console(true)
+    .with_file("/var/log/myapp.log")
+    .with_rotation(RotationTrigger::size(10 * 1024 * 1024, 5)) // 10MB, keep 5 files
+    .init()?;
+
+// Time-based rotation
+lazylog::builder()
+    .with_file("/var/log/myapp.log")
+    .with_rotation(RotationTrigger::time(RotationPeriod::Daily))
+    .init()?;
+
+// Hybrid rotation (size or time)
+lazylog::builder()
+    .with_file("/var/log/myapp.log")
+    .with_rotation(RotationTrigger::both(
+        RotationPeriod::Daily,
+        10 * 1024 * 1024, // 10MB
+        5                  // keep 5 files
+    ))
+    .init()?;
+```
+
+### Configuration Object API
+
+For advanced use cases or loading from config files:
 
 ```rust
 use lazylog::{LogConfig, FileLogConfig, RotationTrigger};
@@ -67,8 +136,11 @@ let config = LogConfig::new()
     .with_format("json".to_string())
     .with_file(
         FileLogConfig::new("/var/log/myapp.log")
-            .with_rotation_trigger(RotationTrigger::size(10 * 1024 * 1024)) // 10MB
+            .with_rotation_trigger(RotationTrigger::size(10 * 1024 * 1024, 5))
     );
+
+// Initialize with the config
+lazylog::from_config(config).init()?;
 ```
 
 ### YAML Configuration
@@ -86,19 +158,32 @@ log:
 
 ### Log Rotation
 
-Configure automatic log rotation:
+Configure automatic log rotation using the builder or config objects:
 
 ```rust
 use lazylog::{RotationTrigger, RotationPeriod};
 
-// Rotate every 10MB
-let size_trigger = RotationTrigger::size(10 * 1024 * 1024);
+// Size-based: Rotate when file reaches 10MB, keep 5 files
+lazylog::builder()
+    .with_file("app.log")
+    .with_rotation(RotationTrigger::size(10 * 1024 * 1024, 5))
+    .init()?;
 
-// Rotate daily
-let time_trigger = RotationTrigger::time(RotationPeriod::Day);
+// Time-based: Rotate daily (requires `time` feature)
+lazylog::builder()
+    .with_file("app.log")
+    .with_rotation(RotationTrigger::time(RotationPeriod::Daily))
+    .init()?;
 
-// Rotate when either condition is met
-let hybrid_trigger = RotationTrigger::both(10 * 1024 * 1024, 86400); // 10MB or 24 hours
+// Hybrid: Rotate when either condition is met (requires `time` feature)
+lazylog::builder()
+    .with_file("app.log")
+    .with_rotation(RotationTrigger::both(
+        RotationPeriod::Daily,    // Rotate daily
+        10 * 1024 * 1024,         // OR when file reaches 10MB
+        5                          // Keep 5 old files
+    ))
+    .init()?;
 ```
 
 ## Examples
@@ -106,10 +191,10 @@ let hybrid_trigger = RotationTrigger::both(10 * 1024 * 1024, 86400); // 10MB or 
 ### Basic Console Logging
 
 ```rust
-use lazylog::{init_logging, LogConfig};
-
-let config = LogConfig::new().with_console(true);
-init_logging(&config)?;
+lazylog::builder()
+    .with_console(true)
+    .with_level("info")
+    .init()?;
 
 tracing::info!("Hello, world!");
 ```
@@ -117,39 +202,96 @@ tracing::info!("Hello, world!");
 ### File Logging with Rotation
 
 ```rust
-use lazylog::{init_logging, LogConfig, FileLogConfig, RotationTrigger};
+use lazylog::RotationTrigger;
 
-let file_config = FileLogConfig::new("app.log")
-    .with_rotation_trigger(RotationTrigger::size(1024 * 1024)); // 1MB
-
-let config = LogConfig::new()
+lazylog::builder()
     .with_console(true)
-    .with_file(file_config);
+    .with_file("app.log")
+    .with_rotation(RotationTrigger::size(1024 * 1024, 3)) // 1MB, keep 3 files
+    .init()?;
 
-init_logging(&config)?;
+tracing::info!("Logged to file with rotation");
 ```
 
 ### JSON Structured Logging
 
 ```rust
-use lazylog::{init_logging, LogConfig};
-
-let config = LogConfig::new()
+lazylog::builder()
     .with_console(true)
-    .with_format("json".to_string());
-
-init_logging(&config)?;
+    .with_format("json")
+    .init()?;
 
 tracing::info!(user_id = 123, action = "login", "User logged in successfully");
 ```
 
+### Advanced: Custom File Configuration
+
+```rust
+use lazylog::{FileLogConfig, RotationTrigger, RotationPeriod};
+
+let file_config = FileLogConfig::new("app.log")
+    .with_rotation_trigger(RotationTrigger::both(
+        RotationPeriod::Hourly,
+        5 * 1024 * 1024,
+        10
+    ));
+
+lazylog::builder()
+    .with_console(true)
+    .with_file_config(file_config)
+    .init()?;
+```
+
 ## API Reference
+
+### Builder API
+
+#### `lazylog::builder()`
+
+Create a new logging configuration builder.
+
+**Methods:**
+- `with_console(bool)` - Enable/disable console logging
+- `with_level(impl Into<String>)` - Set log level ("trace", "debug", "info", "warn", "error")
+- `with_format(impl Into<String>)` - Set output format ("text" or "json")
+- `with_file(impl Into<PathBuf>)` - Configure file logging with a path
+- `with_file_config(FileLogConfig)` - Configure file logging with a custom config
+- `with_rotation(RotationTrigger)` - Set rotation trigger for file logging
+- `with_cli_verbose(u8)` - Set CLI verbosity level override
+- `init()` - Initialize logging (consumes the builder)
+- `build()` - Get the configuration without initializing
+
+**Example:**
+```rust
+lazylog::builder()
+    .with_console(true)
+    .with_level("debug")
+    .with_file("/var/log/app.log")
+    .with_rotation(RotationTrigger::size(10 * 1024 * 1024, 5))
+    .init()?;
+```
+
+#### `lazylog::from_config(config)`
+
+Create a builder from an existing configuration.
+
+**Example:**
+```rust
+let config = LogConfig::new().with_console(true);
+lazylog::from_config(config)
+    .with_level("debug")
+    .init()?;
+```
 
 ### LogConfig
 
 Main configuration struct for logging.
 
+**Constructors:**
 - `new()` - Create a new configuration with defaults
+- `default()` - Same as `new()`
+
+**Methods:**
 - `with_console(bool)` - Enable/disable console logging
 - `with_level(String)` - Set log level (trace, debug, info, warn, error)
 - `with_format(String)` - Set output format (text or json)
@@ -159,7 +301,10 @@ Main configuration struct for logging.
 
 Configuration for file logging.
 
+**Constructors:**
 - `new(path)` - Create with a file path
+
+**Methods:**
 - `with_rotation_trigger(RotationTrigger)` - Set rotation trigger
 
 ### RotationTrigger
@@ -199,7 +344,7 @@ make test
 Run specific test file:
 
 ```bash
-cargo test --features log-file --test logging_file_tests
+cargo test --features file --test logging_file_tests
 ```
 
 ## Contributing

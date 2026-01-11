@@ -1,12 +1,16 @@
-use lazylog::{LogConfig, init_logging};
+//! JSON structured logging example.
+//!
+//! This example demonstrates how to configure JSON output format
+//! for structured logging with additional fields.
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = LogConfig::new()
+    // Initialize logging with JSON format
+    lazylog::builder()
         .with_console(true)
-        .with_format("json".to_string());
-
-    init_logging(&config, None)?;
+        .with_format("json")
+        .with_level("info")
+        .init()?;
 
     tracing::info!(user_id = 123, action = "login", "User logged in");
     tracing::warn!(error_code = 404, "Resource not found");

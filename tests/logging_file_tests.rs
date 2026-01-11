@@ -1,4 +1,4 @@
-#![cfg(feature = "log-file")]
+#![cfg(feature = "file")]
 
 use lazylog::config::LogConfig;
 use std::io::Read;
@@ -17,6 +17,9 @@ fn test_file_logging_disables_ansi_text() {
             path: path.clone().into(),
             rotation: lazylog::RotationTrigger::Never,
         }),
+        target: false,
+        thread_ids: false,
+        thread_names: false,
     };
 
     let filter = tracing_subscriber::EnvFilter::try_new(cfg.level.clone()).unwrap();
@@ -68,6 +71,9 @@ fn test_file_logging_disables_ansi_json() {
             path: path.clone().into(),
             rotation: lazylog::RotationTrigger::Never,
         }),
+        target: false,
+        thread_ids: false,
+        thread_names: false,
     };
 
     let filter = tracing_subscriber::EnvFilter::try_new(cfg.level.clone()).unwrap();
@@ -122,6 +128,9 @@ fn test_rolling_daily_creates_file() {
                 period: lazylog::RotationPeriod::Daily,
             },
         }),
+        target: false,
+        thread_ids: false,
+        thread_names: false,
     };
 
     let filter = tracing_subscriber::EnvFilter::try_new(cfg.level.clone()).unwrap();

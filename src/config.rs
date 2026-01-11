@@ -14,6 +14,15 @@ pub struct LogConfig {
     pub format: String,
     /// File logging configuration
     pub file: Option<FileLogConfig>,
+    /// Show target/module in logs
+    #[serde(default)]
+    pub target: bool,
+    /// Show thread IDs in logs
+    #[serde(default)]
+    pub thread_ids: bool,
+    /// Show thread names in logs
+    #[serde(default)]
+    pub thread_names: bool,
 }
 
 impl LogConfig {
@@ -24,6 +33,9 @@ impl LogConfig {
             level: default_log_level(),
             format: default_format(),
             file: None,
+            target: false,
+            thread_ids: false,
+            thread_names: false,
         }
     }
 
@@ -48,6 +60,24 @@ impl LogConfig {
     /// Set file logging configuration
     pub fn with_file(mut self, file: FileLogConfig) -> Self {
         self.file = Some(file);
+        self
+    }
+
+    /// Show target/module in logs
+    pub fn with_target(mut self, target: bool) -> Self {
+        self.target = target;
+        self
+    }
+
+    /// Show thread IDs in logs
+    pub fn with_thread_ids(mut self, thread_ids: bool) -> Self {
+        self.thread_ids = thread_ids;
+        self
+    }
+
+    /// Show thread names in logs
+    pub fn with_thread_names(mut self, thread_names: bool) -> Self {
+        self.thread_names = thread_names;
         self
     }
 }
@@ -104,6 +134,9 @@ mod tests {
         assert_eq!(config.level, "info");
         assert_eq!(config.format, "text");
         assert!(config.file.is_none());
+        assert!(!config.target);
+        assert!(!config.thread_ids);
+        assert!(!config.thread_names);
     }
 
     #[test]
@@ -113,6 +146,9 @@ mod tests {
         assert_eq!(config.level, "info");
         assert_eq!(config.format, "text");
         assert!(config.file.is_none());
+        assert!(!config.target);
+        assert!(!config.thread_ids);
+        assert!(!config.thread_names);
     }
 
     #[test]
@@ -142,6 +178,24 @@ mod tests {
             config.file.as_ref().unwrap().path,
             PathBuf::from("test.log")
         );
+    }
+
+    #[test]
+    fn test_log_config_with_target() {
+        let config = LogConfig::new().with_target(true);
+        assert!(config.target);
+    }
+
+    #[test]
+    fn test_log_config_with_thread_ids() {
+        let config = LogConfig::new().with_thread_ids(true);
+        assert!(config.thread_ids);
+    }
+
+    #[test]
+    fn test_log_config_with_thread_names() {
+        let config = LogConfig::new().with_thread_names(true);
+        assert!(config.thread_names);
     }
 
     #[test]
