@@ -1,0 +1,55 @@
+[package]
+name = "lazylog"
+version = "0.1.0"
+edition = "2024"
+description = "A flexible logging library with file rotation and structured output"
+repository = "https://github.com/lazywalker/lazylog"
+license = "GPL-3.0-or-later"
+keywords = ["logging", "tracing", "rotation", "file", "structured"]
+categories = ["development-tools::debugging"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", optional = true, features = [
+    "env-filter",
+    "json",
+    "fmt",
+] }
+tracing-appender = { version = "0.2", optional = true }
+once_cell = "1.19"
+
+# Optional dependencies
+time = { version = "0.3", optional = true, features = [
+    "local-offset",
+    "formatting",
+] }
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full"] }
+tempfile = "3.0"
+
+[features]
+default = ["tracing-integration"]
+tracing-integration = [
+    "tracing-subscriber/env-filter",
+    "tracing-subscriber/json",
+    "tracing-subscriber/local-time",
+]
+log-file = ["tracing-integration", "tracing-appender"]
+log-ansi = ["tracing-integration", "tracing-subscriber/ansi"]
+time = ["time/local-offset", "time/macros"]
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "json_logging"
+path = "examples/json_logging.rs"
+
+[[example]]
+name = "rotation"
+path = "examples/rotation.rs"
+required-features = ["time"]
