@@ -93,42 +93,6 @@ log:
       size: 10M
 ```
 
-## Examples
-
-### Basic Logging
-
-```rust
-lazylog::builder()
-    .with_console(true)
-    .with_level("info")
-    .init()?;
-
-tracing::info!("Hello, world!");
-tracing::error!("Something went wrong");
-```
-
-### File Logging
-
-```rust
-lazylog::builder()
-    .with_file("app.log")
-    .with_rotation(RotationTrigger::size(1024 * 1024, 3))
-    .init()?;
-
-tracing::info!("This will be logged to file");
-```
-
-### Structured Logging
-
-```rust
-lazylog::builder()
-    .with_console(true)
-    .with_format("json")
-    .init()?;
-
-tracing::info!(user_id = 123, action = "login", "User logged in");
-```
-
 ## API Reference
 
 ### Builder API

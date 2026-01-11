@@ -89,9 +89,26 @@ impl RotatingWriter {
         }
     }
 
-    /// Perform size-based rotation with rename chain.
+    /// Check if the base file exists and is within size limits
+    fn should_use_existing_file(&self) -> io::Result<bool> {
+        if !self.base_path.exists() {
+            return Ok(false);
+        }
+
+        match &self.trigger {
+            RotationTrigger::Size { max_size, .. } | RotationTrigger::Both { max_size, .. } => {
+                let metadata = self.base_path.metadata()?;
+                let file_size = metadata.len();
+                Ok(file_size <= *max_size)
+            }
+            _ => Ok(false), // For time-only or never rotation, don't use existing file
+        }
+    }
+
+    /// Perform size-based rotation by copying content instead of renaming.
     ///
-    /// Renames: base.log -> base.log.1 -> base.log.2 -> ... -> base.log.N (deleted)
+    /// Copies content: base.log -> base.log.1, then truncates base.log to 0
+    /// This preserves the main log file for continuous monitoring (e.g., tail -f)
     fn rotate_by_size(&self) -> io::Result<()> {
         let max_files = self.trigger.max_files().unwrap_or(5);
         let base = &self.base_path;
@@ -111,10 +128,17 @@ impl RotatingWriter {
             }
         }
 
-        // Rename current file to .1
+        // Copy current file content to .1 and truncate the original
         if base.exists() {
             let first = PathBuf::from(format!("{}.1", base.display()));
-            std::fs::rename(base, first)?;
+            std::fs::copy(base, &first)?;
+
+            // Truncate the original file to 0 bytes
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(base)?;
+            file.set_len(0)?;
         }
 
         Ok(())
@@ -149,7 +173,10 @@ impl RotatingWriter {
         let mut guard = self.state.lock().unwrap();
 
         let needs_rotation = match &*guard {
-            None => true,
+            None => {
+                // First time initialization - check if we can use existing file
+                !self.should_use_existing_file()?
+            }
             Some(state) => self.needs_rotation(state, buf_len),
         };
 
@@ -160,6 +187,22 @@ impl RotatingWriter {
             // Perform rotation and create new file
             let new_state = self.rotate()?;
             *guard = Some(new_state);
+        } else if guard.is_none() {
+            // No rotation needed and no current state - open existing file
+            let file_path = self.current_file_path();
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&file_path)?;
+
+            let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+            let time_suffix = self.current_time_suffix();
+
+            *guard = Some(FileState {
+                file,
+                size,
+                time_suffix,
+            });
         }
 
         Ok(Arc::clone(&self.state))
@@ -300,36 +343,34 @@ mod tests {
     }
 
     #[test]
-    fn test_rotating_writer_max_files_limit() {
-        let dir = unique_test_dir("maxfiles");
+    fn test_rotating_writer_reuse_existing_file() {
+        let dir = unique_test_dir("reuse");
         std::fs::create_dir_all(&dir).unwrap();
 
         let log_path = dir.join("test.log");
-        // Very small size and only 2 max files
-        let mut writer =
-            RotatingWriter::new(&log_path, RotationTrigger::size(20, 2)).expect("create writer");
 
-        // Write multiple times to trigger multiple rotations
-        for i in 0..10 {
-            writer
-                .write_all(format!("line number {}\n", i).as_bytes())
-                .unwrap();
+        // Create a file with some content that's under the size limit
+        {
+            let mut file = std::fs::File::create(&log_path).unwrap();
+            file.write_all(b"existing content\n").unwrap();
         }
+
+        // Create writer with size limit larger than existing content
+        let mut writer =
+            RotatingWriter::new(&log_path, RotationTrigger::size(100, 5)).expect("create writer");
+
+        // Write additional content
+        writer.write_all(b"new content\n").unwrap();
         writer.flush().unwrap();
 
-        // Count log files
-        let log_files: Vec<_> = std::fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().starts_with("test.log"))
-            .collect();
+        // Check that the file still contains both old and new content
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(content.contains("existing content"));
+        assert!(content.contains("new content"));
 
-        // Should have at most max_files + 1 (current + rotated)
-        assert!(
-            log_files.len() <= 3,
-            "should not exceed max_files limit, found {}",
-            log_files.len()
-        );
+        // Check that no rotated files were created
+        let rotated_1 = dir.join("test.log.1");
+        assert!(!rotated_1.exists(), "Should not have created rotated file");
 
         cleanup_dir(&dir);
     }
