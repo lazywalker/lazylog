@@ -2,6 +2,54 @@ use serde::{Deserialize, Deserializer, Serialize, de};
 #[cfg(feature = "time")]
 use time::OffsetDateTime;
 
+/// Parse a size string with optional units (K/M/G, case-insensitive), defaulting to KB if no unit.
+fn parse_size(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("empty size string".to_string());
+    }
+
+    let (num_str, unit) = if s.chars().last().unwrap().is_alphabetic() {
+        let len = s.len();
+        let num_part = &s[..len - 1];
+        let unit_char = s.chars().last().unwrap().to_ascii_uppercase();
+        (num_part, unit_char)
+    } else {
+        (s, 'K') // Default to KB
+    };
+
+    let num: u64 = num_str
+        .parse()
+        .map_err(|_| format!("invalid number: {}", num_str))?;
+
+    let multiplier = match unit {
+        'K' => 1024,
+        'M' => 1024 * 1024,
+        'G' => 1024 * 1024 * 1024,
+        _ => return Err(format!("invalid unit: {}, supported: K/M/G", unit)),
+    };
+
+    num.checked_mul(multiplier)
+        .ok_or_else(|| "size too large".to_string())
+}
+
+/// Size value that can be a number or string with units.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SizeValue {
+    Number(u64),
+    String(String),
+}
+
+impl SizeValue {
+    fn to_bytes(&self) -> Result<u64, String> {
+        match self {
+            SizeValue::Number(n) => parse_size(&n.to_string()),
+            SizeValue::String(s) => parse_size(s),
+        }
+    }
+}
+
 /// Rotation trigger for log files.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -17,6 +65,8 @@ pub enum RotationTrigger {
     /// Rotate based on file size.
     Size {
         /// Maximum file size in bytes before rotation.
+        /// Can be specified as a number (defaults to KB) or string with units (K/M/G, case-insensitive).
+        /// Examples: 10 (10KB), "5M" (5MB), "1G" (1GB), "2k" (2KB), "3m" (3MB), "4g" (4GB)
         max_size: u64,
         /// Maximum number of files to keep.
         max_files: usize,
@@ -26,6 +76,8 @@ pub enum RotationTrigger {
         /// The time period for rotation.
         period: RotationPeriod,
         /// Maximum file size in bytes before rotation.
+        /// Can be specified as a number (defaults to KB) or string with units (K/M/G, case-insensitive).
+        /// Examples: 10 (10KB), "5M" (5MB), "1G" (1GB), "2k" (2KB), "3m" (3MB), "4g" (4GB)
         max_size: u64,
         /// Maximum number of files to keep.
         max_files: usize,
@@ -45,7 +97,7 @@ impl<'de> Deserialize<'de> for RotationTrigger {
                 #[serde(rename = "type")]
                 rotation_type: Option<String>,
                 period: Option<RotationPeriod>,
-                max_size: Option<u64>,
+                max_size: Option<SizeValue>,
                 max_files: Option<usize>,
             },
         }
@@ -108,9 +160,12 @@ impl<'de> Deserialize<'de> for RotationTrigger {
                     Ok(RotationTrigger::Time { period })
                 }
                 Some("size") => {
-                    let max_size = max_size.ok_or_else(|| {
-                        de::Error::custom("max_size is required for size-based rotation")
-                    })?;
+                    let max_size = max_size
+                        .ok_or_else(|| {
+                            de::Error::custom("max_size is required for size-based rotation")
+                        })?
+                        .to_bytes()
+                        .map_err(de::Error::custom)?;
                     let max_files = max_files.unwrap_or(5);
                     Ok(RotationTrigger::Size {
                         max_size,
@@ -121,9 +176,12 @@ impl<'de> Deserialize<'de> for RotationTrigger {
                     let period = period.ok_or_else(|| {
                         de::Error::custom("period is required for time+size rotation")
                     })?;
-                    let max_size = max_size.ok_or_else(|| {
-                        de::Error::custom("max_size is required for time+size rotation")
-                    })?;
+                    let max_size = max_size
+                        .ok_or_else(|| {
+                            de::Error::custom("max_size is required for time+size rotation")
+                        })?
+                        .to_bytes()
+                        .map_err(de::Error::custom)?;
                     let max_files = max_files.unwrap_or(5);
                     Ok(RotationTrigger::Both {
                         period,
@@ -258,18 +316,93 @@ mod tests {
         let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(trigger, RotationTrigger::Never);
 
-        // Test deserializing size-based rotation
+        // Test deserializing size-based rotation with number (defaults to KB)
         let yaml = r#"
 type: size
-max_size: 1024
+max_size: 10
 max_files: 5
 "#;
         let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
             trigger,
             RotationTrigger::Size {
-                max_size: 1024,
+                max_size: 10 * 1024,
                 max_files: 5
+            }
+        );
+
+        // Test deserializing size-based rotation with KB
+        let yaml = r#"
+type: size
+max_size: "5K"
+max_files: 3
+"#;
+        let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            trigger,
+            RotationTrigger::Size {
+                max_size: 5 * 1024,
+                max_files: 3
+            }
+        );
+
+        // Test deserializing size-based rotation with MB
+        let yaml = r#"
+type: size
+max_size: "2M"
+max_files: 4
+"#;
+        let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            trigger,
+            RotationTrigger::Size {
+                max_size: 2 * 1024 * 1024,
+                max_files: 4
+            }
+        );
+
+        // Test deserializing size-based rotation with lowercase units
+        let yaml = r#"
+type: size
+max_size: "3k"
+max_files: 6
+"#;
+        let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            trigger,
+            RotationTrigger::Size {
+                max_size: 3 * 1024,
+                max_files: 6
+            }
+        );
+
+        // Test deserializing size-based rotation with lowercase MB
+        let yaml = r#"
+type: size
+max_size: "4m"
+max_files: 7
+"#;
+        let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            trigger,
+            RotationTrigger::Size {
+                max_size: 4 * 1024 * 1024,
+                max_files: 7
+            }
+        );
+
+        // Test deserializing size-based rotation with lowercase GB
+        let yaml = r#"
+type: size
+max_size: "2g"
+max_files: 8
+"#;
+        let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            trigger,
+            RotationTrigger::Size {
+                max_size: 2 * 1024 * 1024 * 1024,
+                max_files: 8
             }
         );
 
@@ -295,7 +428,7 @@ period: daily
             let yaml = r#"
 type: both
 period: hourly
-max_size: 2048
+max_size: "512K"
 max_files: 10
 "#;
             let trigger: RotationTrigger = serde_yaml::from_str(yaml).unwrap();
@@ -303,7 +436,7 @@ max_files: 10
                 trigger,
                 RotationTrigger::Both {
                     period: RotationPeriod::Hourly,
-                    max_size: 2048,
+                    max_size: 512 * 1024,
                     max_files: 10
                 }
             );

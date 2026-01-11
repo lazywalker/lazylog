@@ -112,6 +112,9 @@ fn init_console_and_file(
         let layer = tracing_subscriber::fmt::layer()
             .with_writer(non_blocking)
             .with_ansi(false)
+            .with_target(config.target)
+            .with_thread_ids(config.thread_ids)
+            .with_thread_names(config.thread_names)
             .json();
         #[cfg(feature = "time")]
         let layer = layer.with_timer(create_timer());
@@ -119,7 +122,10 @@ fn init_console_and_file(
     } else {
         let layer = tracing_subscriber::fmt::layer()
             .with_writer(non_blocking)
-            .with_ansi(false);
+            .with_ansi(false)
+            .with_target(config.target)
+            .with_thread_ids(config.thread_ids)
+            .with_thread_names(config.thread_names);
         #[cfg(feature = "time")]
         let layer = layer.with_timer(create_timer());
         layer.boxed()
@@ -185,6 +191,9 @@ fn init_file_only(
         let layer = tracing_subscriber::fmt::layer()
             .with_writer(non_blocking)
             .with_ansi(false)
+            .with_target(config.target)
+            .with_thread_ids(config.thread_ids)
+            .with_thread_names(config.thread_names)
             .json();
         #[cfg(feature = "time")]
         let layer = layer.with_timer(create_timer());
@@ -192,7 +201,10 @@ fn init_file_only(
     } else {
         let layer = tracing_subscriber::fmt::layer()
             .with_writer(non_blocking)
-            .with_ansi(false);
+            .with_ansi(false)
+            .with_target(config.target)
+            .with_thread_ids(config.thread_ids)
+            .with_thread_names(config.thread_names);
         #[cfg(feature = "time")]
         let layer = layer.with_timer(create_timer());
         layer.boxed()
