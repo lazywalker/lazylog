@@ -35,6 +35,15 @@ impl RotatingWriter {
             state: Arc::new(Mutex::new(None)),
         };
 
+        // Ensure parent directory exists (create if necessary). This makes
+        // file logging robust when users specify a path containing directories
+        // that don't yet exist (e.g., `logs/lazydns.log`).
+        if let Some(parent) = writer.base_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+
         // Initialize with a file
         writer.get_or_rotate(0)?;
 
@@ -274,6 +283,36 @@ mod tests {
         assert!(log_path.exists());
         let content = std::fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("hello world"));
+
+        cleanup_dir(&dir);
+    }
+
+    #[test]
+    fn test_rotating_writer_creates_parent_dir() {
+        // Don't pre-create nested dirs; writer should create them automatically
+        let dir = unique_test_dir("parent_create");
+        let nested = dir.join("nested/inner");
+        let log_path = nested.join("test.log");
+
+        // Parent does not exist yet
+        assert!(!nested.exists());
+
+        // Creating writer should create parent directories
+        let mut writer =
+            RotatingWriter::new(&log_path, RotationTrigger::Never).expect("create writer");
+
+        writer.write_all(b"hello parent\n").unwrap();
+        writer.flush().unwrap();
+
+        assert!(log_path.exists(), "Log file should have been created");
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(content.contains("hello parent"));
+
+        // Parent directories should exist now
+        assert!(
+            nested.exists(),
+            "Parent directories should have been created"
+        );
 
         cleanup_dir(&dir);
     }
