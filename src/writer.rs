@@ -119,34 +119,38 @@ impl RotatingWriter {
     /// Copies content: base.log -> base.log.1, then truncates base.log to 0
     /// This preserves the main log file for continuous monitoring (e.g., tail -f)
     fn rotate_by_size(&self) -> io::Result<()> {
+        // Rotate the *current* file (which may include a time suffix) rather than
+        // the base path. This ensures hybrid (Both) rotation behaves sensibly —
+        // size-based rotations will operate on the active file (e.g. `base.2026-01-15`)
+        // instead of an unrelated `base` path.
         let max_files = self.trigger.max_files().unwrap_or(5);
-        let base = &self.base_path;
+        let current = self.current_file_path();
 
-        // Delete the oldest file if it exists
-        let oldest = PathBuf::from(format!("{}.{}", base.display(), max_files));
+        // Delete the oldest file if it exists (current.<max_files>)
+        let oldest = PathBuf::from(format!("{}.{}", current.display(), max_files));
         if oldest.exists() {
             std::fs::remove_file(&oldest)?;
         }
 
-        // Shift files: .N-1 -> .N, .N-2 -> .N-1, ..., .1 -> .2
+        // Shift files: current.(N-1) -> current.N, ..., current.1 -> current.2
         for i in (1..max_files).rev() {
-            let from = PathBuf::from(format!("{}.{}", base.display(), i));
-            let to = PathBuf::from(format!("{}.{}", base.display(), i + 1));
+            let from = PathBuf::from(format!("{}.{}", current.display(), i));
+            let to = PathBuf::from(format!("{}.{}", current.display(), i + 1));
             if from.exists() {
                 std::fs::rename(&from, &to)?;
             }
         }
 
-        // Copy current file content to .1 and truncate the original
-        if base.exists() {
-            let first = PathBuf::from(format!("{}.1", base.display()));
-            std::fs::copy(base, &first)?;
+        // Copy current file content to current.1 and truncate the current file
+        if current.exists() {
+            let first = PathBuf::from(format!("{}.1", current.display()));
+            std::fs::copy(&current, &first)?;
 
-            // Truncate the original file to 0 bytes
+            // Truncate the original current file to 0 bytes
             let file = std::fs::OpenOptions::new()
                 .write(true)
                 .truncate(true)
-                .open(base)?;
+                .open(&current)?;
             file.set_len(0)?;
         }
 
@@ -442,6 +446,30 @@ mod tests {
             .collect();
 
         assert!(!entries.is_empty(), "should have created log files");
+
+        // Find the active time-suffixed file (e.g., test.log.2026-01-15)
+        // Choose the suffixed name whose last segment contains a '-' (date),
+        // which distinguishes it from rotated numeric suffixes like `.1`.
+        let active = entries
+            .iter()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .find(|name| {
+                name.starts_with("test.log.")
+                    && name
+                        .rsplit('.')
+                        .next()
+                        .map(|s| s.contains('-'))
+                        .unwrap_or(false)
+            })
+            .expect("active time-suffixed file should exist");
+
+        let rotated_name = format!("{}.1", active);
+        let rotated_path = dir.join(&rotated_name);
+        assert!(
+            rotated_path.exists(),
+            "rotated file {} should exist",
+            rotated_name
+        );
 
         cleanup_dir(&dir);
     }
