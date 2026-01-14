@@ -1,0 +1,36 @@
+# LazyLog Configuration Example (YAML)
+
+log:
+  # Enable console logging
+  console: true
+
+  # Log level: trace, debug, info, warn, error
+  level: info
+
+  # Log format: text or json
+  format: text
+
+  # Show target/module in logs
+  target: true
+
+  # Show thread IDs in logs
+  thread_ids: false
+
+  # Show thread names in logs
+  thread_names: true
+
+  # File logging configuration
+  file:
+    # Path to log file
+    path: ./log/app.log
+    
+    # Rotation configuration
+    # Options:
+    #   - never (no rotation)
+    #   - size: { max_size: "10M", max_backups: 5 }
+    #   - daily: { max_backups: 7 }
+    #   - hourly: { max_backups: 24 }
+    rotation:
+      size:
+        max_size: "10M"
+        max_backups: 5

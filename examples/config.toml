@@ -1,0 +1,34 @@
+# LazyLog Configuration Example (TOML)
+
+[log]
+# Enable console logging
+console = true
+
+# Log level: trace, debug, info, warn, error
+level = "debug"
+
+# Log format: text or json
+format = "json"
+
+# Show target/module in logs
+target = true
+
+# Show thread IDs in logs
+thread_ids = true
+
+# Show thread names in logs
+thread_names = true
+
+# File logging configuration
+[log.file]
+path = "./log/app.log"
+
+# Rotation configuration
+# Options:
+#   - never (no rotation)
+#   - size with max_size and max_backups
+#   - daily with max_backups
+#   - hourly with max_backups
+
+[log.file.rotation.daily]
+max_backups = 7

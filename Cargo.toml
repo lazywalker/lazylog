@@ -25,6 +25,7 @@ time = { version = "0.3", default-features = false, optional = true }
 tokio = { version = "1.0", features = ["full"] }
 tempfile = "3.0"
 serde_yaml = "0.9"
+toml = "0.8"
 
 [features]
 default = []
@@ -49,3 +50,15 @@ path = "examples/json_logging.rs"
 name = "rotation"
 path = "examples/rotation.rs"
 required-features = ["time", "file"]
+
+[[example]]
+name = "config_yaml"
+path = "examples/config_yaml.rs"
+
+[[example]]
+name = "config_toml"
+path = "examples/config_toml.rs"
+
+[[example]]
+name = "config_advanced"
+path = "examples/config_advanced.rs"
